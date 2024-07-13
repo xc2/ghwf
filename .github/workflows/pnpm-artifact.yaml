@@ -49,7 +49,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      artifact-name: ${{ steps.var.outputs.artifact }}
+      artifact-name: ${{ steps.var.outputs.artifact-name }}
       artifact-path: ${{ steps.var.outputs.artifact-path }}
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-url: ${{ steps.upload.outputs.artifact-url }}
@@ -100,9 +100,9 @@ jobs:
         name: Run ${{ inputs.script }} in project ${{ inputs.project }}
         run: |
           if [[ -n "${{ inputs.project }}" ]]; then
-            pnpm -F "${{ inputs.project }}" "${{ inputs.script }}"
+            pnpm -F "${{ inputs.project }}" run "${{ inputs.script }}"
           else
-            pnpm "${{ inputs.script }}"
+            pnpm run "${{ inputs.script }}"
           fi
 
       - name: Upload Artifact
