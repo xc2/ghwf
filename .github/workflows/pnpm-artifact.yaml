@@ -1,0 +1,113 @@
+---
+name: PNPM Artifact
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: 22
+      project:
+        description: 'Project name'
+        required: false
+        type: string
+      script:
+        description: 'Pnpm script to run'
+        required: false
+        type: string
+        default: build
+      artifact:
+        description: "Artifact path related to project directory"
+        required: false
+        type: string
+        default: dist
+      artifact-name:
+        description: 'Artifact name'
+        required: false
+        type: string
+    outputs:
+      artifact-name:
+        description: 'Artifact name'
+        value: ${{ jobs.build.outputs.artifact-name }}
+      artifact-path:
+        description: 'Artifact name'
+        value: ${{ jobs.build.outputs.artifact-path }}
+      artifact-id:
+        description: 'Artifact Id'
+        value: ${{ jobs.build.outputs.artifact-id }}
+      artifact-url:
+        description: 'Artifact URL'
+        value: ${{ jobs.build.outputs.artifact-url }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ steps.var.outputs.artifact }}
+      artifact-path: ${{ steps.var.outputs.artifact-path }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-url: ${{ steps.upload.outputs.artifact-url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'pnpm'
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - id: var
+        name: Setup Variables
+        env:
+          PROJECT: ${{ inputs.project }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          ARTIFACT_PATH: ${{ inputs.artifact }}
+        run: |
+          if [[ -n "$PROJECT" ]]; then
+            echo "artifact-name=${ARTIFACT_NAME:-artifact-$PROJECT}" >> "$GITHUB_OUTPUT"
+            echo "artifact-path=$(pnpm -F $PROJECT exec pwd)/$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+          else
+            echo "artifact-name=${ARTIFACT_NAME:-artifact}" >> "$GITHUB_OUTPUT"
+            echo "artifact-path=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: build
+        name: Run ${{ inputs.script }} in project ${{ inputs.project }}
+        run: |
+          if [[ -n "${{ inputs.project }}" ]]; then
+            pnpm -F "${{ inputs.project }}" "${{ inputs.script }}"
+          else
+            pnpm "${{ inputs.script }}"
+          fi
+
+      - name: Upload Artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.var.outputs.artifact-name }}
+          path: ${{ steps.var.outputs.artifact-path }}
