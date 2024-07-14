@@ -1,0 +1,17 @@
+name: 'Restore PNPM Artifact'
+description: 'Restore PNPM artifact from cache'
+inputs:
+  cache-key:
+    description: 'Artifact Cache Key'
+    required: true
+  cache-path:
+    description: 'Artifact Cache Path'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/cache/restore@v4
+      with:
+        key: ${{ inputs.cache-key }}
+        path: ${{ inputs.cache-path }}
+        fail-on-cache-miss: true

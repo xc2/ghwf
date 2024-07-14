@@ -18,7 +18,12 @@ on:
         required: false
         type: string
         default: build
-      artifact:
+      github-artifact:
+        description: 'Whether to upload as github artifact'
+        required: false
+        type: boolean
+        default: false
+      artifact-path:
         description: "Artifact path related to project directory"
         required: false
         type: string
@@ -31,15 +36,18 @@ on:
       artifact-name:
         description: 'Artifact name'
         value: ${{ jobs.build.outputs.artifact-name }}
-      artifact-path:
-        description: 'Artifact name'
-        value: ${{ jobs.build.outputs.artifact-path }}
       artifact-id:
         description: 'Artifact Id'
         value: ${{ jobs.build.outputs.artifact-id }}
       artifact-url:
         description: 'Artifact URL'
         value: ${{ jobs.build.outputs.artifact-url }}
+      cache-key:
+        description: 'Cache key'
+        value: ${{ jobs.build.outputs.cache-key }}
+      cache-path:
+        description: 'Cache Path'
+        value: ${{ jobs.build.outputs.cache-path }}
 
 defaults:
   run:
@@ -50,28 +58,58 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       artifact-name: ${{ steps.var.outputs.artifact-name }}
-      artifact-path: ${{ steps.var.outputs.artifact-path }}
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-url: ${{ steps.upload.outputs.artifact-url }}
+      cache-key: ${{ steps.var.outputs.cache-key }}
+      cache-path: ${{ steps.var.outputs.cache-path }}
     steps:
+      - id: var
+        name: Setup Variables
+        env:
+          PROJECT: ${{ inputs.project }}
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        run: |
+          if [[ -n "$PROJECT" ]]; then
+            export ARTIFACT_NAME="${ARTIFACT_NAME:-artifact-$PROJECT}"
+          else
+            export ARTIFACT_NAME="${ARTIFACT_NAME:-artifact}"
+          fi
+          echo "artifact-name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "cache-key=${ARTIFACT_NAME}-${{ github.sha }}-${{ runner.os }}-${{ runner.arch }}" >> "$GITHUB_OUTPUT"
+          echo "cache-path=${{ inputs.artifact-path }}" >> "$GITHUB_OUTPUT"
+
+      - name: Artifact Cache
+        id: artifact-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.var.outputs.cache-path }}
+          key: ${{ steps.var.outputs.cache-key }}
+          lookup-only: ${{ inputs.github-artifact != 'true' && inputs.github-artifact != true }}
+
       - uses: actions/checkout@v4
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
+
       - uses: pnpm/action-setup@v4
         name: Install pnpm
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         with:
           run_install: false
 
       - name: Install Node.js
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: 'pnpm'
 
       - name: Get pnpm store directory
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         id: pnpm-cache
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
       - uses: actions/cache@v4
         name: Setup pnpm cache
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -79,24 +117,11 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         run: pnpm install
 
-      - id: var
-        name: Setup Variables
-        env:
-          PROJECT: ${{ inputs.project }}
-          ARTIFACT_NAME: ${{ inputs.artifact-name }}
-          ARTIFACT_PATH: ${{ inputs.artifact }}
-        run: |
-          if [[ -n "$PROJECT" ]]; then
-            echo "artifact-name=${ARTIFACT_NAME:-artifact-$PROJECT}" >> "$GITHUB_OUTPUT"
-            echo "artifact-path=$(pnpm -F $PROJECT exec pwd)/$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
-          else
-            echo "artifact-name=${ARTIFACT_NAME:-artifact}" >> "$GITHUB_OUTPUT"
-            echo "artifact-path=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
-          fi
-
       - id: build
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
         name: Run ${{ inputs.script }} in project ${{ inputs.project }}
         run: |
           if [[ -n "${{ inputs.project }}" ]]; then
@@ -108,6 +133,7 @@ jobs:
       - name: Upload Artifact
         id: upload
         uses: actions/upload-artifact@v4
+        if: ${{ inputs.github-artifact }}
         with:
           name: ${{ steps.var.outputs.artifact-name }}
-          path: ${{ steps.var.outputs.artifact-path }}
+          path: ${{ inputs.artifact-path }}
